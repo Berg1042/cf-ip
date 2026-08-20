@@ -1197,6 +1197,24 @@ def http_server_filter(candidates, config):
     print(f"HTTP检测经 {max_rounds} 轮重试后仍无节点通过，降级使用过滤前候选列表。")
     return candidates, {}, {}
 
+# 检测当前 curl 是否支持 HTTP/2（不同环境下的 curl 支持情况不同）
+_CURL_HTTP2 = None  # None=未检测, True/False
+
+
+def curl_supports_http2():
+    global _CURL_HTTP2
+    if _CURL_HTTP2 is not None:
+        return _CURL_HTTP2
+    _CURL_HTTP2 = False
+    try:
+        out = subprocess.run(["curl", "--version"], capture_output=True, text=True,
+                             timeout=10).stdout or ""
+        _CURL_HTTP2 = ("HTTP2" in out) or ("nghttp2" in out)
+    except Exception:
+        _CURL_HTTP2 = False
+    return _CURL_HTTP2
+
+
 def measure_bandwidth_curl(node_str):
     m = IP_PORT_PATTERN.match(node_str)
     if not m:
@@ -1211,7 +1229,10 @@ def measure_bandwidth_curl(node_str):
         "-w", "%{size_download} %{time_starttransfer} %{time_total}",
         "-L",
         "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "--http2",
+    ]
+    if curl_supports_http2():
+        curl_cmd.append("--http2")
+    curl_cmd += [
         "--noproxy", "*",
         "--resolve", f"speed.cloudflare.com:{port}:{ip}",
         "--connect-timeout", str(BANDWIDTH_CONNECT_TIMEOUT),
